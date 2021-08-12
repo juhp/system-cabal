@@ -68,7 +68,7 @@ runCmd mode mpkg = do
 -- adapted from stack-all findStackProjectDir
 findCabalProjectDir :: Maybe FilePath -> IO ()
 findCabalProjectDir mdir = do
-  whenJust mdir $ setCurrentDirectory
+  whenJust mdir setCurrentDirectory
   haveCabalFile <- doesFileExistWithExtension "." ".cabal"
   if haveCabalFile
     then return ()
