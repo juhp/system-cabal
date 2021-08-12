@@ -13,15 +13,27 @@ import System.Directory
 import System.FilePath
 import Paths_system_cabal (version)
 
-data RunMode = Config | Build | Install
+data RunMode = ConfigCmd | BuildCmd | InstallCmd
 
-modeCommands :: RunMode -> [String]
-modeCommands Config = ["configure"]
-modeCommands Build = ["build"]
-modeCommands Install = ["build","install"]
+data CabalCmd = Configure | Build | Install
 
-modeOptions :: RunMode -> IO [String]
-modeOptions Config = do
+instance Show CabalCmd where
+  show Configure = "configure"
+  show Build = "build"
+  show Install = "install"
+
+cmdStages :: RunMode -> IO [CabalCmd]
+cmdStages ConfigCmd =
+  return [Configure]
+cmdStages BuildCmd = do
+  dist <- doesDirectoryExist "dist"
+  return $ [Configure | not dist] ++ [Build]
+cmdStages InstallCmd = do
+  build <- cmdStages BuildCmd
+  return $ build ++ [Install]
+
+modeOptions :: CabalCmd -> IO [String]
+modeOptions Configure = do
   home <- getHomeDirectory
   return ["--user","--prefix=" ++ home </> ".local"]
 modeOptions _ = return []
@@ -35,22 +47,23 @@ main =
       -- FIXME only want to install executable
       -- FIXME use ~/.local/bin
       -- FIXME run configure automatically if no dist/
-      runCmd Config
+      runCmd ConfigCmd
       <$> optional (strArg "PKG")
     , Subcommand "build" "Build a package" $
-      runCmd Build
+      runCmd BuildCmd
       <$> optional (strArg "PKG")
     , Subcommand "install" "Install a package" $
-      runCmd Install
+      runCmd InstallCmd
       <$> optional (strArg "PKG")
     ]
 
 runCmd :: RunMode -> Maybe String -> IO ()
 runCmd mode mpkg = do
   findCabalProjectDir mpkg
-  options <- modeOptions mode
-  forM_ (modeCommands mode) $ \com ->
-    defaultMainArgs (com:options)
+  cmds <- cmdStages mode
+  forM_ cmds $ \com -> do
+    options <- modeOptions com
+    defaultMainArgs (show com:options)
 
 -- adapted from stack-all findStackProjectDir
 findCabalProjectDir :: Maybe FilePath -> IO ()
