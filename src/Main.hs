@@ -13,6 +13,19 @@ import System.Directory
 import System.FilePath
 import Paths_system_cabal (version)
 
+data RunMode = Config | Build | Install
+
+modeCommands :: RunMode -> [String]
+modeCommands Config = ["configure"]
+modeCommands Build = ["build"]
+modeCommands Install = ["build","install"]
+
+modeOptions :: RunMode -> IO [String]
+modeOptions Config = do
+  home <- getHomeDirectory
+  return ["--user","--prefix=" ++ home </> ".local"]
+modeOptions _ = return []
+
 main :: IO ()
 main =
   simpleCmdArgs (Just version) "system-cabal package build tool"
@@ -22,20 +35,22 @@ main =
       -- FIXME only want to install executable
       -- FIXME use ~/.local/bin
       -- FIXME run configure automatically if no dist/
-      runCmd "configure" ["--user"]
+      runCmd Config
       <$> optional (strArg "PKG")
     , Subcommand "build" "Build a package" $
-      runCmd "build" []
+      runCmd Build
       <$> optional (strArg "PKG")
     , Subcommand "install" "Install a package" $
-      runCmd "install" []
+      runCmd Install
       <$> optional (strArg "PKG")
     ]
 
-runCmd :: String -> [String] -> Maybe String -> IO ()
-runCmd com args mpkg = do
+runCmd :: RunMode -> Maybe String -> IO ()
+runCmd mode mpkg = do
   findCabalProjectDir mpkg
-  defaultMainArgs (com:args)
+  options <- modeOptions mode
+  forM_ (modeCommands mode) $ \com ->
+    defaultMainArgs (com:options)
 
 -- adapted from stack-all findStackProjectDir
 findCabalProjectDir :: Maybe FilePath -> IO ()
