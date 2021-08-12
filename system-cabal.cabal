@@ -1,8 +1,10 @@
 name:                system-cabal
 version:             0.1.0
-synopsis:            One line summary
+synopsis:            Build Haskell from system libraries
 description:
-        Short paragraph here
+        This package came about due to my Fedora packaging work and
+        the desire to make user of Haskell system libraries over user builds
+        using cabal-install or stack.
 license:             BSD3
 license-file:        LICENSE
 author:              Jens Petersen <juhpetersen@gmail.com>
@@ -15,7 +17,7 @@ build-type:          Simple
 --  extra-doc-files:     README.md
 --                       ChangeLog.md
 cabal-version:       2.0
---tested-with:         GHC == 8.4.4, GHC == 8.6.5, GHC == 8.8.4, GHC == 8.10.4
+tested-with:         GHC == 8.4.4, GHC == 8.6.5, GHC == 8.8.4, GHC == 8.10.4
 
 source-repository head
   type:                git
