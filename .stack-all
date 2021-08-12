@@ -1,0 +1,3 @@
+[versions]
+# no isSuffixOf
+oldest = lts-12
