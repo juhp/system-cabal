@@ -13,7 +13,7 @@ import System.Directory
 import System.FilePath
 import Paths_system_cabal (version)
 
-data RunMode = ConfigCmd | BuildCmd | InstallCmd
+data RunMode = ConfigCmd | BuildCmd | InstallCmd | HelpCmd
 
 data CabalCmd = Configure | Build | Install
 
@@ -31,6 +31,8 @@ cmdStages BuildCmd = do
 cmdStages InstallCmd = do
   build <- cmdStages BuildCmd
   return $ build ++ [Install]
+cmdStages HelpCmd =
+  return []
 
 modeOptions :: CabalCmd -> IO [String]
 modeOptions Configure = do
@@ -55,9 +57,14 @@ main =
     , Subcommand "install" "Install a package" $
       runCmd InstallCmd
       <$> optional (strArg "PKG")
+    , Subcommand "help" "Help output" $
+      runCmd HelpCmd
+      <$> optional (strArg "COMMAND")
     ]
 
 runCmd :: RunMode -> Maybe String -> IO ()
+runCmd HelpCmd marg =
+  defaultMainArgs (maybeToList marg ++ ["--help"])
 runCmd mode mpkg = do
   findCabalProjectDir mpkg
   cmds <- cmdStages mode
