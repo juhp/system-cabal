@@ -5,32 +5,47 @@
 module Main (main) where
 
 import Control.Monad.Extra
+import Data.Either
 import Data.Maybe
 import Distribution.Simple (defaultMainArgs)
+import Distribution.Simple.Configure (tryGetConfigStateFile)
 import SimpleCmd
 import SimpleCmdArgs
 import System.Directory
 import System.FilePath
 import Paths_system_cabal (version)
 
-data RunMode = ConfigCmd | BuildCmd | InstallCmd | HelpCmd
+data RunMode = ConfigCmd | BuildCmd | InstallCmd | TestCmd | HelpCmd
 
-data CabalCmd = Configure | Build | Install
+data CabalCmd = Configure | Build | Install | Test
 
 instance Show CabalCmd where
   show Configure = "configure"
   show Build = "build"
   show Install = "install"
+  show Test = "test"
+
+needToConfigure :: IO Bool
+needToConfigure = do
+  dist <- doesDirectoryExist "dist"
+  if dist
+  then do
+    elbi <- tryGetConfigStateFile "dist/setup-config"
+    return $ isLeft elbi
+  else return True
 
 cmdStages :: RunMode -> IO [CabalCmd]
 cmdStages ConfigCmd =
   return [Configure]
 cmdStages BuildCmd = do
-  dist <- doesDirectoryExist "dist"
-  return $ [Configure | not dist] ++ [Build]
+  needconfig <- needToConfigure
+  return $ [Configure | needconfig] ++ [Build]
 cmdStages InstallCmd = do
   build <- cmdStages BuildCmd
   return $ build ++ [Install]
+cmdStages TestCmd = do
+  needconfig <- needToConfigure
+  return $ [Configure | needconfig] ++ [Test]
 cmdStages HelpCmd =
   return []
 
@@ -56,6 +71,9 @@ main =
       <$> optional (strArg "PKG")
     , Subcommand "install" "Install a package" $
       runCmd InstallCmd
+      <$> optional (strArg "PKG")
+    , Subcommand "test" "Test a package" $
+      runCmd TestCmd
       <$> optional (strArg "PKG")
     , Subcommand "help" "Help output" $
       runCmd HelpCmd
