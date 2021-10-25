@@ -5,10 +5,11 @@
 module Main (main) where
 
 import Control.Monad.Extra
-import Data.Either
 import Data.Maybe
 import Distribution.Simple (defaultMainArgs)
 import Distribution.Simple.Configure (tryGetConfigStateFile)
+import Distribution.Simple.Setup (configTests, Flag(..))
+import Distribution.Types.LocalBuildInfo
 import SimpleCmd
 import SimpleCmdArgs
 import System.Directory
@@ -17,42 +18,49 @@ import Paths_system_cabal (version)
 
 data RunMode = ConfigCmd | BuildCmd | InstallCmd | TestCmd | HelpCmd
 
-data CabalCmd = Configure | Build | Install | Test
+data CabalCmd = Configure Bool | Build | Install | Test
 
 instance Show CabalCmd where
-  show Configure = "configure"
+  show (Configure _) = "configure"
   show Build = "build"
   show Install = "install"
   show Test = "test"
 
-needToConfigure :: IO Bool
-needToConfigure = do
+needToConfigure :: Bool -> IO Bool
+needToConfigure test = do
   dist <- doesDirectoryExist "dist"
   if dist
-  then do
+    then do
     elbi <- tryGetConfigStateFile "dist/setup-config"
-    return $ isLeft elbi
-  else return True
+    case elbi of
+      Right lbi -> do
+        let testsuite = configTests $ configFlags lbi
+        return $
+          if test && testsuite == Flag False
+          then True
+          else False
+      Left _ -> return True
+    else return True
 
 cmdStages :: RunMode -> IO [CabalCmd]
 cmdStages ConfigCmd =
-  return [Configure]
+  return [Configure False]
 cmdStages BuildCmd = do
-  needconfig <- needToConfigure
-  return $ [Configure | needconfig] ++ [Build]
+  needconfig <- needToConfigure False
+  return $ [Configure False | needconfig] ++ [Build]
 cmdStages InstallCmd = do
   build <- cmdStages BuildCmd
   return $ build ++ [Install]
 cmdStages TestCmd = do
-  needconfig <- needToConfigure
-  return $ [Configure | needconfig] ++ [Test]
+  needconfig <- needToConfigure True
+  return $ [Configure True | needconfig] ++ [Build, Test]
 cmdStages HelpCmd =
   return []
 
 modeOptions :: CabalCmd -> IO [String]
-modeOptions Configure = do
+modeOptions (Configure test) = do
   home <- getHomeDirectory
-  return ["--user","--prefix=" ++ home </> ".local"]
+  return $ ["--user","--prefix=" ++ home </> ".local"] ++ ["--enable-tests" | test]
 modeOptions _ = return []
 
 main :: IO ()
