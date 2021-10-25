@@ -68,10 +68,12 @@ main =
   simpleCmdArgs (Just version) "system-cabal package build tool"
     "Use system Haskell library to build Haskell packages" $
     subcommands
-    -- FIXME configure alias
     [ Subcommand "config" "Configure a package" $
       -- FIXME okay to install libraries?
       -- FIXME --bindir
+      runCmd ConfigCmd
+      <$> optional (strArg "PKG")
+    , Subcommand "configure" "alias for config" $
       runCmd ConfigCmd
       <$> optional (strArg "PKG")
     , Subcommand "build" "Build a package" $
