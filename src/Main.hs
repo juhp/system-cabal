@@ -6,10 +6,12 @@ module Main (main) where
 
 import Control.Monad.Extra
 import Data.Maybe
-import Distribution.Simple (defaultMainArgs)
+import Distribution.Parsec (simpleParsec)
+import Distribution.Simple (defaultMainArgs, mkPackageName)
 import Distribution.Simple.Configure (tryGetConfigStateFile)
 import Distribution.Simple.Setup (configTests, Flag(..))
-import Distribution.Types.LocalBuildInfo
+import Distribution.Types.LocalBuildInfo (configFlags, installedPkgs)
+import Distribution.Simple.PackageIndex (lookupPackageName)
 import SimpleCmd
 import SimpleCmdArgs
 import System.Directory
@@ -34,11 +36,19 @@ needToConfigure test = do
     elbi <- tryGetConfigStateFile "dist/setup-config"
     case elbi of
       Right lbi -> do
-        let testsuite = configTests $ configFlags lbi
-        return $
-          if test && testsuite == Flag False
-          then True
-          else False
+        case lookupPackageName (installedPkgs lbi) (mkPackageName "base") of
+          [] -> return True
+          [(basever,_)] -> do
+            msysbase <- simpleParsec <$> cmd "ghc-pkg" ["list", "--simple-output", "base"]
+            if msysbase /= Just basever
+              then return True
+              else do
+              let testsuite = configTests $ configFlags lbi
+              return $
+                if test && testsuite == Flag False
+                then True
+                else False
+          _ -> return True
       Left _ -> return True
     else return True
 
