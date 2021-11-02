@@ -1,4 +1,4 @@
 - install deps
 - use shake
 - missing
--
+- use --builddir=dist/ghc-8.10.5 etc

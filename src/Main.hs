@@ -5,12 +5,16 @@
 module Main (main) where
 
 import Control.Monad.Extra
+import Data.Either.Extra
 import Data.Maybe
 import Distribution.Parsec (simpleParsec)
-import Distribution.Simple (defaultMainArgs, mkPackageName)
+import Distribution.Simple (defaultMainArgs, mkPackageName, unPackageName,
+                            pkgName)
 import Distribution.Simple.Configure (tryGetConfigStateFile)
 import Distribution.Simple.Setup (configTests, Flag(..))
-import Distribution.Types.LocalBuildInfo (configFlags, installedPkgs)
+import Distribution.Types.LocalBuildInfo (LocalBuildInfo, configFlags,
+                                          installedPkgs, localPkgDescr)
+import Distribution.Types.PackageDescription (package)
 import Distribution.Simple.PackageIndex (lookupPackageName)
 import SimpleCmd
 import SimpleCmdArgs
@@ -18,39 +22,48 @@ import System.Directory
 import System.FilePath
 import Paths_system_cabal (version)
 
-data RunMode = ConfigCmd | BuildCmd | InstallCmd | TestCmd | HelpCmd
+data RunMode = ConfigCmd | BuildCmd | InstallCmd | TestCmd | ReplCmd | HelpCmd
 
-data CabalCmd = Configure Bool | Build | Install | Test
+data CabalCmd = Configure Bool | Build | Install | Test | Repl
 
 instance Show CabalCmd where
   show (Configure _) = "configure"
   show Build = "build"
   show Install = "install"
   show Test = "test"
+  show Repl = "repl"
+
+getLocalBuildInfo :: IO (Maybe LocalBuildInfo)
+getLocalBuildInfo = do
+  dist <- doesDirectoryExist "dist"
+  if dist
+    then eitherToMaybe <$> tryGetConfigStateFile "dist/setup-config"
+    else return Nothing
+
+getLocalBuildInfo' :: IO LocalBuildInfo
+getLocalBuildInfo' = do
+  dist <- doesDirectoryExist "dist"
+  let setupConfig = "dist/setup-config"
+  if dist
+    then either (error' .show) id <$> tryGetConfigStateFile setupConfig
+    else error' $ setupConfig ++ " not found"
 
 needToConfigure :: Bool -> IO Bool
 needToConfigure test = do
-  dist <- doesDirectoryExist "dist"
-  if dist
-    then do
-    elbi <- tryGetConfigStateFile "dist/setup-config"
-    case elbi of
-      Right lbi -> do
-        case lookupPackageName (installedPkgs lbi) (mkPackageName "base") of
-          [] -> return True
-          [(basever,_)] -> do
-            msysbase <- simpleParsec <$> cmd "ghc-pkg" ["list", "--simple-output", "base"]
-            if msysbase /= Just basever
-              then return True
-              else do
-              let testsuite = configTests $ configFlags lbi
-              return $
-                if test && testsuite == Flag False
-                then True
-                else False
-          _ -> return True
-      Left _ -> return True
-    else return True
+  mlbi <- getLocalBuildInfo
+  case mlbi of
+    Just lbi -> do
+      case lookupPackageName (installedPkgs lbi) (mkPackageName "base") of
+        [] -> return True
+        [(basever,_)] -> do
+          msysbase <- simpleParsec <$> cmd "ghc-pkg" ["list", "--simple-output", "base"]
+          if msysbase /= Just basever
+            then return True
+            else do
+            let testsuite = configTests $ configFlags lbi
+            return $ test && testsuite == Flag False
+        _ -> return True
+    Nothing -> return True
 
 cmdStages :: RunMode -> IO [CabalCmd]
 cmdStages ConfigCmd =
@@ -64,6 +77,9 @@ cmdStages InstallCmd = do
 cmdStages TestCmd = do
   needconfig <- needToConfigure True
   return $ [Configure True | needconfig] ++ [Build, Test]
+cmdStages ReplCmd = do
+  needconfig <- needToConfigure True
+  return $ [Configure True | needconfig] ++ [Repl]
 cmdStages HelpCmd =
   return []
 
@@ -71,6 +87,11 @@ modeOptions :: CabalCmd -> IO [String]
 modeOptions (Configure test) = do
   home <- getHomeDirectory
   return $ ["--user","--prefix=" ++ home </> ".local"] ++ ["--enable-tests" | test]
+-- lib:name or name, etc
+modeOptions Repl = do
+  lbi <- getLocalBuildInfo'
+  let pkgname = unPackageName . pkgName . package . localPkgDescr
+  return [pkgname lbi]
 modeOptions _ = return []
 
 main :: IO ()
@@ -94,6 +115,9 @@ main =
       <$> optional (strArg "PKG")
     , Subcommand "test" "Test a package" $
       runCmd TestCmd
+      <$> optional (strArg "PKG")
+    , Subcommand "repl" "Run interpreter" $
+      runCmd ReplCmd
       <$> optional (strArg "PKG")
     , Subcommand "help" "Help output" $
       runCmd HelpCmd
