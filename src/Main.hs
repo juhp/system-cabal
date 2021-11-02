@@ -7,7 +7,11 @@ module Main (main) where
 import Control.Monad.Extra
 import Data.Either.Extra
 import Data.Maybe
+#if MIN_VERSION_Cabal(3,0,0)
 import Distribution.Parsec (simpleParsec)
+#else
+import Distribution.Text (simpleParse)
+#endif
 import Distribution.Simple (defaultMainArgs, mkPackageName, unPackageName,
                             pkgName)
 import Distribution.Simple.Configure (tryGetConfigStateFile)
@@ -56,7 +60,13 @@ needToConfigure test = do
       case lookupPackageName (installedPkgs lbi) (mkPackageName "base") of
         [] -> return True
         [(basever,_)] -> do
-          msysbase <- simpleParsec <$> cmd "ghc-pkg" ["list", "--simple-output", "base"]
+          msysbase <-
+#if MIN_VERSION_Cabal(3,0,0)
+            simpleParsec
+#else
+            simpleParse
+#endif
+            <$> cmd "ghc-pkg" ["list", "--simple-output", "base"]
           if msysbase /= Just basever
             then return True
             else do
