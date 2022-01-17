@@ -27,7 +27,7 @@ executable scbl
   main-is:             Main.hs
   other-modules:       Paths_system_cabal
   hs-source-dirs:      src
-  build-depends:       base < 5,
+  build-depends:       base >= 4.11 && < 5,
                        Cabal,
                        directory,
                        extra,
