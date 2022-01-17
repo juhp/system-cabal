@@ -12,11 +12,11 @@ import Distribution.Parsec (simpleParsec)
 #else
 import Distribution.Text (simpleParse)
 #endif
-import Distribution.Simple (defaultMainArgs)
+import Distribution.Simple (defaultMainArgs, {-unComponentId-})
 import Distribution.Simple.Configure (tryGetConfigStateFile)
 import Distribution.Simple.Setup (configTests, Flag(..))
-import Distribution.Types.LocalBuildInfo (LocalBuildInfo, configFlags,
-                                          installedPkgs, localPkgDescr)
+import Distribution.Types.LocalBuildInfo ({-LocalBuildInfo,-} configFlags,
+                                          installedPkgs, {-localComponentId-})
 import Distribution.Types.PackageId
 import Distribution.Types.PackageName
 import Distribution.Simple.PackageIndex (lookupPackageName)
@@ -160,10 +160,10 @@ runCmd mode mpkg = do
       execCabalCmd Configure options
 
     runRepl = do
-      -- lib:name or name, etc
-      lbi <- getLocalBuildInfo'
-      let pkgname = unPackageName . pkgName . SC.package . localPkgDescr
-      execCabalCmd Repl [pkgname lbi]
+      -- -- lib:name or name, etc
+      -- lbi <- getLocalBuildInfo'
+      -- let localComponent = unComponentId . localComponentId
+      execCabalCmd Repl [] -- [localComponent lbi]
 
 execCabalCmd :: CabalCmd -> [String] -> IO ()
 execCabalCmd mode opts =
@@ -183,13 +183,13 @@ systemPackageManager = do
         "opensuse" -> Zypper
         _ -> error' $ "Unsupported OS: " ++ os
 
-getLocalBuildInfo' :: IO LocalBuildInfo
-getLocalBuildInfo' = do
-  dist <- doesDirectoryExist "dist"
-  let setupConfig = "dist/setup-config"
-  if dist
-    then either (error' . show) id <$> tryGetConfigStateFile setupConfig
-    else error' $ setupConfig ++ " not found"
+-- getLocalBuildInfo' :: IO LocalBuildInfo
+-- getLocalBuildInfo' = do
+--   dist <- doesDirectoryExist "dist"
+--   let setupConfig = "dist/setup-config"
+--   if dist
+--     then either (error' . show) id <$> tryGetConfigStateFile setupConfig
+--     else error' $ setupConfig ++ " not found"
 
 pkgInstalled :: DistroPkgMgr -> PackageName -> IO Bool
 pkgInstalled Apt = debInstalled
