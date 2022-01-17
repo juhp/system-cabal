@@ -5,7 +5,7 @@
 module Main (main) where
 
 import Control.Monad.Extra
-import Data.List ((\\))
+import Data.List.Extra
 import Data.Maybe
 #if MIN_VERSION_Cabal(3,0,0)
 import Distribution.Parsec (simpleParsec)
@@ -111,7 +111,7 @@ main =
 -- FIXME handle --test
 runCmd :: CabalCmd -> Maybe String -> IO ()
 runCmd Help marg =
-  defaultMainArgs (maybeToList marg ++ ["--help"])
+  execCabalCmd Help (maybeToList marg)
 runCmd mode mpkg = do
   findCabalProjectDir mpkg
   needconfig <- needToConfigure False
@@ -120,46 +120,68 @@ runCmd mode mpkg = do
     pkgdesc <- SC.findCabalFile >>= SC.readFinalPackageDescription []
     -- FIXME use packageDependencies
     let builddeps = SC.buildDependencies pkgdesc
-    missing <- filterM notInstalled builddeps
+    pkgmgr <- systemPackageManager
+    missing <- filterM (fmap not . pkgInstalled pkgmgr) builddeps
     if null missing
       then do
       runConfigure False
-      runCabal
+      cabalCmd
       else do
       putStrLn "Running repoquery"
-      available <- catMaybes <$> mapM repoqueryGhcDevel missing
+      available <- catMaybes <$> mapM (pkgQueryGhcDevel pkgmgr) missing
       unless (null available) $
-        installPkgs available
-      let notpackaged = map ghcDevelPkg missing \\ available
+        installPkgs pkgmgr available
+      let notpackaged = map (ghcDevelPkg pkgmgr) missing \\ available
       if null notpackaged
         then do
         runConfigure False
-        runCabal
+        cabalCmd
         else do
         -- FIXME record missing packages
         putStrLn $ "Missing system libs:\n" ++ unlines notpackaged
         putStrLn "Falling back to cabal-install:"
         cmd_ "cabal" [show mode]
-    else runCabal
+    else cabalCmd
   where
-    runCabal =
+    cabalCmd =
       case mode of
         Configure -> return ()
+        Install -> do
+          -- FIXME make smarter?
+          execCabalCmd Build []
+          execCabalCmd Install []
         Repl -> runRepl
-        _ -> defaultMainArgs [show mode]
+        _ -> execCabalCmd mode []
 
     runConfigure test = do
       home <- getHomeDirectory
-      let options' =
+      let options =
             ["--user","--prefix=" ++ home </> ".local"] ++ ["--enable-tests" | test]
-      defaultMainArgs ("configure":options')
+      execCabalCmd Configure options
 
     runRepl = do
       -- lib:name or name, etc
       lbi <- getLocalBuildInfo'
       let pkgname = unPackageName . pkgName . SC.package . localPkgDescr
-          options' = [pkgname lbi]
-      defaultMainArgs ("repl":options')
+      execCabalCmd Repl [pkgname lbi]
+
+execCabalCmd :: CabalCmd -> [String] -> IO ()
+execCabalCmd mode opts =
+  defaultMainArgs (show mode:opts)
+
+data DistroPkgMgr = Apt | Dnf | Zypper
+
+systemPackageManager :: IO DistroPkgMgr
+systemPackageManager = do
+  os <- removePrefix "ID=" <$> cmd "grep" ["^ID=", "/usr/lib/os-release"]
+  return $
+    case os of
+      "fedora" -> Dnf
+      "debian" -> Apt
+      "ubuntu" -> Apt
+      _ -> case head (splitOn "-" os) of
+        "opensuse" -> Zypper
+        _ -> error' $ "Unsupported OS: " ++ os
 
 getLocalBuildInfo' :: IO LocalBuildInfo
 getLocalBuildInfo' = do
@@ -169,23 +191,70 @@ getLocalBuildInfo' = do
     then either (error' . show) id <$> tryGetConfigStateFile setupConfig
     else error' $ setupConfig ++ " not found"
 
--- FIXME support deb too
-notInstalled :: PackageName -> IO Bool
-notInstalled dep =
-  not <$> cmdBool "rpm" ["-q", "--quiet", "--whatprovides", ghcDevelPkg dep]
+pkgInstalled :: DistroPkgMgr -> PackageName -> IO Bool
+pkgInstalled Apt = debInstalled
+pkgInstalled Dnf = rpmInstalled
+pkgInstalled Zypper = rpmInstalled
 
-ghcDevelPkg :: PackageName -> String
-ghcDevelPkg dep =
+rpmInstalled :: PackageName -> IO Bool
+rpmInstalled dep =
+  cmdBool "rpm" ["-q", "--quiet", "--whatprovides", ghcDevelRpm dep]
+
+debInstalled :: PackageName -> IO Bool
+debInstalled dep =
+  cmdBool "apt-cache" ["show", ghcDevelDeb dep]
+
+ghcDevelPkg :: DistroPkgMgr -> PackageName -> String
+ghcDevelPkg Apt = ghcDevelDeb
+ghcDevelPkg Dnf = ghcDevelRpm
+ghcDevelPkg Zypper = ghcDevelRpm
+
+ghcDevelRpm :: PackageName -> String
+ghcDevelRpm dep =
   "ghc-" ++ unPackageName dep ++ "-devel"
+
+ghcDevelDeb :: PackageName -> String
+ghcDevelDeb dep =
+  "libghc-" ++ unPackageName dep ++ "-dev"
+
+pkgQueryGhcDevel :: DistroPkgMgr -> PackageName -> IO (Maybe String)
+pkgQueryGhcDevel Apt = aptCacheSearchGhcDevel
+pkgQueryGhcDevel Dnf = repoqueryGhcDevel
+pkgQueryGhcDevel Zypper = zypperSearchGhcDevel
 
 repoqueryGhcDevel :: PackageName -> IO (Maybe String)
 repoqueryGhcDevel dep = do
-  res <- sudo "dnf" ["repoquery", "--qf", "%{name}", ghcDevelPkg dep]
+  res <- sudo "dnf" ["repoquery", "--qf", "%{name}", ghcDevelRpm dep]
   return $ if null res then Nothing else Just res
 
-installPkgs :: [String] -> IO ()
-installPkgs pkgs =
+aptCacheSearchGhcDevel :: PackageName -> IO (Maybe String)
+aptCacheSearchGhcDevel dep = do
+  let pkg = ghcDevelDeb dep
+  res <- cmd "apt-cache" ["search", pkg]
+  return $ if null res then Nothing else Just pkg
+
+zypperSearchGhcDevel :: PackageName -> IO (Maybe String)
+zypperSearchGhcDevel dep = do
+  let pkg = ghcDevelRpm dep
+  res <- cmd "zypper" ["search", pkg]
+  return $ if null res then Nothing else Just pkg
+
+installPkgs :: DistroPkgMgr -> [String] -> IO ()
+installPkgs Apt = installDebs
+installPkgs Dnf = dnfInstallRpms
+installPkgs Zypper = zypperInstallRpms
+
+installDebs :: [String] -> IO ()
+installDebs pkgs =
+  cmd_ "apt" ("install":pkgs)
+
+dnfInstallRpms :: [String] -> IO ()
+dnfInstallRpms pkgs =
   sudo_ "dnf" ("install":pkgs)
+
+zypperInstallRpms :: [String] -> IO ()
+zypperInstallRpms pkgs =
+  sudo_ "zypper" ("install":pkgs)
 
 -- adapted from stack-all findStackProjectDir
 findCabalProjectDir :: Maybe FilePath -> IO ()
