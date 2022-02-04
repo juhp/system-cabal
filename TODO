@@ -1,11 +1,7 @@
+- handle components
 - --debug
 
-- install distro deps
-- fallback to cabal-install if missing deps
-
 - use shake
-- missing
-- use --builddir=dist/ghc-8.10.5 etc
-- build --tests
-
+- 'missing' deps?
 - option to specify ghc compiler (--with)
+  - which should imply --builddir=dist/ghc-8.10.7
