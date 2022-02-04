@@ -15,10 +15,12 @@ import Distribution.Text (simpleParse)
 import Distribution.Simple (defaultMainArgs, {-unComponentId-})
 import Distribution.Simple.Configure (tryGetConfigStateFile)
 import Distribution.Simple.Setup (configTests, Flag(..))
+import Distribution.Types.Executable (exeName)
 import Distribution.Types.LocalBuildInfo ({-LocalBuildInfo,-} configFlags,
                                           installedPkgs, {-localComponentId-})
 import Distribution.Types.PackageId
 import Distribution.Types.PackageName
+import Distribution.Types.UnqualComponentName (unUnqualComponentName)
 import Distribution.Simple.PackageIndex (lookupPackageName)
 import qualified SimpleCabal as SC
 import SimpleCmd
@@ -27,12 +29,14 @@ import System.Directory
 import System.FilePath
 import Paths_system_cabal (version)
 
-data CabalCmd = Configure | Build | Install | Test | Haddock | Repl | Help
+data CabalCmd = Configure | Build | Run | Install | Test | Haddock | Repl
+              | Help
   deriving Eq
 
 instance Show CabalCmd where
   show Configure = "configure"
   show Build = "build"
+  show Run = "run"
   show Install = "install"
   show Test = "test"
   show Haddock = "haddock"
@@ -87,6 +91,9 @@ main =
       <$> optional (strArg "PKG")
     , Subcommand "build" "Build a package" $
       runCmd Build
+      <$> optional (strArg "PKG")
+    , Subcommand "run" "Run a package" $
+      runCmd Run
       <$> optional (strArg "PKG")
     , Subcommand "install" "Install a package" $
       runCmd Install
@@ -150,6 +157,16 @@ runCmd mode mpkg = do
           -- FIXME make smarter?
           execCabalCmd Build []
           execCabalCmd Install []
+        Run -> do
+          execCabalCmd Build []
+          pkgdesc <- SC.findCabalFile >>= SC.readFinalPackageDescription []
+          case SC.executables pkgdesc of
+            [] -> error' "no executables"
+            [exe] ->
+              let ex = unUnqualComponentName $ exeName exe
+              in cmd_ (joinPath ["dist", "build", ex, ex]) []
+            exes -> error' $ "please specify executable component: " ++
+                    unwords (map (unUnqualComponentName . exeName) exes)
         Test -> do
           execCabalCmd Build []
           execCabalCmd Test []
