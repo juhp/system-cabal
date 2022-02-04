@@ -67,7 +67,7 @@ needToConfigure test = do
               then return True
               else do
                 let testsuite = configTests $ configFlags lbi
-                return $ test && testsuite == Flag False
+                return $ test && testsuite == Flag True
             Nothing -> return True
         _ -> return True
     Left err -> print err >> return True
@@ -114,7 +114,7 @@ runCmd Help marg =
   execCabalCmd Help (maybeToList marg)
 runCmd mode mpkg = do
   findCabalProjectDir mpkg
-  needconfig <- needToConfigure False
+  needconfig <- needToConfigure (mode == Test)
   if needconfig
     then do
     pkgdesc <- SC.findCabalFile >>= SC.readFinalPackageDescription []
@@ -124,7 +124,7 @@ runCmd mode mpkg = do
     missing <- filterM (fmap not . pkgInstalled pkgmgr) builddeps
     if null missing
       then do
-      runConfigure False
+      runConfigure (mode == Test)
       cabalCmd
       else do
       putStrLn "Running repoquery"
@@ -150,6 +150,9 @@ runCmd mode mpkg = do
           -- FIXME make smarter?
           execCabalCmd Build []
           execCabalCmd Install []
+        Test -> do
+          execCabalCmd Build []
+          execCabalCmd Test []
         Repl -> runRepl
         _ -> execCabalCmd mode []
 
