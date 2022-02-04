@@ -100,7 +100,7 @@ main =
     , Subcommand "repl" "Run interpreter" $
       runCmd Repl
       <$> optional (strArg "PKG")
-    , Subcommand "help" "Help output" $
+    , Subcommand "help" "Cabal help output" $
       runCmd Help
       <$> optional (strArg "COMMAND")
     ]
