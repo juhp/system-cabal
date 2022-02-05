@@ -30,7 +30,7 @@ import System.FilePath
 import Paths_system_cabal (version)
 
 data CabalCmd = Configure | Build | Run | Install | Test | Haddock | Repl
-              | Help
+              | Clean | Help
   deriving Eq
 
 instance Show CabalCmd where
@@ -41,6 +41,7 @@ instance Show CabalCmd where
   show Test = "test"
   show Haddock = "haddock"
   show Repl = "repl"
+  show Clean = "clean"
   show Help = "help"
 
 -- getLocalBuildInfo :: IO (Either ConfigStateFileError LocalBuildInfo)
@@ -107,6 +108,9 @@ main =
     , Subcommand "repl" "Run interpreter" $
       runCmd Repl
       <$> optional (strArg "PKG")
+    , Subcommand "clean" "clean dist/" $
+      runCmd Clean
+      <$> optional (strArg "PKG")
     , Subcommand "help" "Cabal help output" $
       runCmd Help
       <$> optional (strArg "COMMAND")
@@ -119,6 +123,9 @@ main =
 runCmd :: CabalCmd -> Maybe String -> IO ()
 runCmd Help marg =
   execCabalCmd Help (maybeToList marg)
+runCmd Clean mpkg = do
+  findCabalProjectDir mpkg
+  removeDirectoryRecursive "dist"
 runCmd mode mpkg = do
   findCabalProjectDir mpkg
   needconfig <- needToConfigure (mode == Test)
