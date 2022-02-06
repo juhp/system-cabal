@@ -1,7 +1,11 @@
 - handle components
 - --debug
 
+- cache unavailable system deps
 - use shake
 - 'missing' deps?
-- option to specify ghc compiler (--with)
+- --with-compiler option to specify ghc version
   - which should imply --builddir=dist/ghc-8.10.7
+
+- optimise "cabal install" to not generate a tarball
+  - ie instead run cabal build and copy executable
