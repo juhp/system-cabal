@@ -51,11 +51,17 @@ instance Show CabalCmd where
 --     then eitherToMaybe <$> tryGetConfigStateFile "dist/setup-config"
 --     else return Nothing
 
-needToConfigure :: Bool -> IO Bool
-needToConfigure test = do
-  elbi <- tryGetConfigStateFile "dist/setup-config"
+setupConfigFile :: FilePath
+setupConfigFile = "dist/setup-config"
+
+data CabalConfig = CabalV1NeedConfig Bool | CabalV2
+
+needConfigure :: Bool -> IO CabalConfig
+needConfigure test = do
+  elbi <- tryGetConfigStateFile setupConfigFile
   case elbi of
-    Right lbi -> do
+    Right lbi ->
+      CabalV1NeedConfig <$>
       case lookupPackageName (installedPkgs lbi) (mkPackageName "base") of
         [] -> return True
         [(basever,_)] -> do
@@ -75,7 +81,15 @@ needToConfigure test = do
                 return $ test && testsuite == Flag True
             Nothing -> return True
         _ -> return True
-    Left err -> print err >> return True
+    Left err -> do
+      haveNewStyle <- doesDirectoryExist "dist-newstyle"
+      if haveNewStyle
+      then do
+        putStrLn "using dist-newstyle"
+        return CabalV2
+      else do
+        print err
+        return $ CabalV1NeedConfig True
 
 main :: IO ()
 main =
@@ -128,34 +142,35 @@ runCmd Clean mpkg = do
   removeDirectoryRecursive "dist"
 runCmd mode mpkg = do
   findCabalProjectDir mpkg
-  needconfig <- needToConfigure (mode == Test)
-  if needconfig
-    then do
-    pkgdesc <- SC.findCabalFile >>= SC.readFinalPackageDescription []
-    -- FIXME use packageDependencies
-    let builddeps = SC.buildDependencies pkgdesc
-    pkgmgr <- systemPackageManager
-    missing <- filterM (fmap not . pkgInstalled pkgmgr) builddeps
-    if null missing
-      then do
-      runConfigure (mode == Test)
-      cabalCmd
-      else do
-      putStrLn "Running repoquery"
-      available <- catMaybes <$> mapM (pkgQueryGhcDevel pkgmgr) missing
-      unless (null available) $
-        installPkgs pkgmgr available
-      let notpackaged = map (ghcDevelPkg pkgmgr) missing \\ available
-      if null notpackaged
-        then do
-        runConfigure False
-        cabalCmd
-        else do
-        -- FIXME record missing packages
-        putStrLn $ "Missing system libs:\n" ++ unlines notpackaged
-        putStrLn "Falling back to cabal-install:"
-        cmd_ "cabal" [show mode]
-    else cabalCmd
+  cblconfig <- needConfigure (mode == Test)
+  case cblconfig of
+    CabalV1NeedConfig True -> do
+        pkgdesc <- SC.findCabalFile >>= SC.readFinalPackageDescription []
+        -- FIXME use packageDependencies
+        let builddeps = SC.buildDependencies pkgdesc
+        pkgmgr <- systemPackageManager
+        missing <- filterM (fmap not . pkgInstalled pkgmgr) builddeps
+        if null missing
+          then do
+          runConfigure (mode == Test)
+          cabalCmd
+          else do
+          putStrLn "Running repoquery"
+          available <- catMaybes <$> mapM (pkgQueryGhcDevel pkgmgr) missing
+          unless (null available) $
+            installPkgs pkgmgr available
+          let notpackaged = map (ghcDevelPkg pkgmgr) missing \\ available
+          if null notpackaged
+            then do
+            runConfigure (mode == Test)
+            cabalCmd
+            else do
+            -- FIXME record missing packages
+            putStrLn $ "Missing system libs:\n" ++ unlines notpackaged
+            putStrLn "Falling back to cabal-install:"
+            cmd_ "cabal" [show mode]
+    CabalV1NeedConfig False -> cabalCmd
+    CabalV2 -> cmd_ "cabal" [show mode]
   where
     cabalCmd =
       case mode of
