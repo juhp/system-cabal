@@ -44,53 +44,6 @@ instance Show CabalCmd where
   show Clean = "clean"
   show Help = "help"
 
--- getLocalBuildInfo :: IO (Either ConfigStateFileError LocalBuildInfo)
--- getLocalBuildInfo = do
---   dist <- doesDirectoryExist "dist"
---   if dist
---     then eitherToMaybe <$> tryGetConfigStateFile "dist/setup-config"
---     else return Nothing
-
-setupConfigFile :: FilePath
-setupConfigFile = "dist/setup-config"
-
-data CabalConfig = CabalV1NeedConfig Bool | CabalV2
-
-needConfigure :: Bool -> IO CabalConfig
-needConfigure test = do
-  elbi <- tryGetConfigStateFile setupConfigFile
-  case elbi of
-    Right lbi ->
-      CabalV1NeedConfig <$>
-      case lookupPackageName (installedPkgs lbi) (mkPackageName "base") of
-        [] -> return True
-        [(basever,_)] -> do
-          msysbase <-
-#if MIN_VERSION_Cabal(3,0,0)
-            simpleParsec
-#else
-            simpleParse
-#endif
-            <$> cmd "ghc-pkg" ["list", "--simple-output", "base"]
-          case msysbase of
-            Just pkgid ->
-              if pkgid /= PackageIdentifier (mkPackageName "base") basever
-              then return True
-              else do
-                let testsuite = configTests $ configFlags lbi
-                return $ test && testsuite == Flag True
-            Nothing -> return True
-        _ -> return True
-    Left err -> do
-      haveNewStyle <- doesDirectoryExist "dist-newstyle"
-      if haveNewStyle
-      then do
-        putStrLn "using dist-newstyle"
-        return CabalV2
-      else do
-        print err
-        return $ CabalV1NeedConfig True
-
 main :: IO ()
 main =
   simpleCmdArgs (Just version) "system-cabal package build tool"
@@ -129,9 +82,6 @@ main =
       runCmd Help
       <$> optional (strArg "COMMAND")
     ]
-
--- debug :: Bool
--- debug = True
 
 -- FIXME handle --test
 runCmd :: CabalCmd -> Maybe String -> IO ()
@@ -207,6 +157,46 @@ runCmd mode mpkg = do
       -- let localComponent = unComponentId . localComponentId
       execCabalCmd Repl [] -- [localComponent lbi]
 
+setupConfigFile :: FilePath
+setupConfigFile = "dist/setup-config"
+
+data CabalConfig = CabalV1NeedConfig Bool | CabalV2
+
+needConfigure :: Bool -> IO CabalConfig
+needConfigure test = do
+  elbi <- tryGetConfigStateFile setupConfigFile
+  case elbi of
+    Right lbi ->
+      CabalV1NeedConfig <$>
+      case lookupPackageName (installedPkgs lbi) (mkPackageName "base") of
+        [] -> return True
+        [(basever,_)] -> do
+          msysbase <-
+#if MIN_VERSION_Cabal(3,0,0)
+            simpleParsec
+#else
+            simpleParse
+#endif
+            <$> cmd "ghc-pkg" ["list", "--simple-output", "base"]
+          case msysbase of
+            Just pkgid ->
+              if pkgid /= PackageIdentifier (mkPackageName "base") basever
+              then return True
+              else do
+                let testsuite = configTests $ configFlags lbi
+                return $ test && testsuite == Flag True
+            Nothing -> return True
+        _ -> return True
+    Left err -> do
+      haveNewStyle <- doesDirectoryExist "dist-newstyle"
+      if haveNewStyle
+      then do
+        putStrLn "using dist-newstyle"
+        return CabalV2
+      else do
+        print err
+        return $ CabalV1NeedConfig True
+
 execCabalCmd :: CabalCmd -> [String] -> IO ()
 execCabalCmd mode opts =
   defaultMainArgs (show mode:opts)
@@ -224,6 +214,13 @@ systemPackageManager = do
       _ -> case head (splitOn "-" os) of
         "opensuse" -> Zypper
         _ -> error' $ "Unsupported OS: " ++ os
+
+-- getLocalBuildInfo :: IO (Either ConfigStateFileError LocalBuildInfo)
+-- getLocalBuildInfo = do
+--   dist <- doesDirectoryExist "dist"
+--   if dist
+--     then eitherToMaybe <$> tryGetConfigStateFile "dist/setup-config"
+--     else return Nothing
 
 -- getLocalBuildInfo' :: IO LocalBuildInfo
 -- getLocalBuildInfo' = do
