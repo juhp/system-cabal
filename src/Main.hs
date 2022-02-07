@@ -83,13 +83,17 @@ main =
       <$> optional (strArg "COMMAND")
     ]
 
--- FIXME handle --test
 runCmd :: CabalCmd -> Maybe String -> IO ()
 runCmd Help marg =
   execCabalCmd Help (maybeToList marg)
 runCmd Clean mpkg = do
   findCabalProjectDir mpkg
   removeDirectoryRecursive "dist"
+runCmd Configure mpkg = do
+  findCabalProjectDir mpkg
+  exists <- doesFileExist setupConfigFile
+  when exists $ removeFile setupConfigFile
+  runConfigure False
 runCmd mode mpkg = do
   findCabalProjectDir mpkg
   cblconfig <- needConfigure (mode == Test)
@@ -145,17 +149,18 @@ runCmd mode mpkg = do
         Repl -> runRepl
         _ -> execCabalCmd mode []
 
-    runConfigure test = do
-      home <- getHomeDirectory
-      let options =
-            ["--user","--prefix=" ++ home </> ".local"] ++ ["--enable-tests" | test]
-      execCabalCmd Configure options
-
     runRepl = do
       -- -- lib:name or name, etc
       -- lbi <- getLocalBuildInfo'
       -- let localComponent = unComponentId . localComponentId
       execCabalCmd Repl [] -- [localComponent lbi]
+
+runConfigure :: Bool -> IO ()
+runConfigure test = do
+  home <- getHomeDirectory
+  let options =
+        ["--user","--prefix=" ++ home </> ".local"] ++ ["--enable-tests" | test]
+  execCabalCmd Configure options
 
 setupConfigFile :: FilePath
 setupConfigFile = "dist/setup-config"
@@ -184,6 +189,7 @@ needConfigure test = do
               then return True
               else do
                 let testsuite = configTests $ configFlags lbi
+                -- FIXME too test focused
                 return $ test && testsuite == Flag True
             Nothing -> return True
         _ -> return True
