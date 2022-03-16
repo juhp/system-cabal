@@ -26,6 +26,7 @@ import qualified SimpleCabal as SC
 import SimpleCmd
 import SimpleCmdArgs
 import System.Directory
+import System.Environment
 import System.FilePath
 import Paths_system_cabal (version)
 
@@ -45,56 +46,72 @@ instance Show CabalCmd where
   show Help = "help"
 
 main :: IO ()
-main =
-  simpleCmdArgs (Just version) "system-cabal package build tool"
+main = do
+  getArgs >>= processArgs
+
+processArgs :: [String] -> IO ()
+processArgs argv =
+  simpleCmdArgs' (Just version) "system-cabal package build tool"
     "Use system Haskell library to build Haskell packages" $
     subcommands
     [ Subcommand "config" "Configure a package" $
       -- FIXME okay to install libraries?
       -- FIXME --bindir
       runCmd Configure
-      <$> optional (strArg "PKG")
+      <$> optionalArg "PKG"
     , Subcommand "configure" "alias for config" $
       runCmd Configure
-      <$> optional (strArg "PKG")
+      <$> optionalArg "PKG"
     , Subcommand "build" "Build a package" $
       runCmd Build
-      <$> optional (strArg "PKG")
+      <$> optionalArg "PKG"
     , Subcommand "run" "Run a package" $
       runCmd Run
-      <$> optional (strArg "PKG")
+      <$> optionalRunArg "[PKG] [-- ARG...]"
     , Subcommand "install" "Install a package" $
       runCmd Install
-      <$> optional (strArg "PKG")
+      <$> optionalArg "PKG"
     , Subcommand "test" "Test a package" $
       runCmd Test
-      <$> optional (strArg "PKG")
+      <$> optionalArg "PKG"
     , Subcommand "haddock" "Build documentation" $
       runCmd Haddock
-      <$> optional (strArg "PKG")
+      <$> optionalArg "PKG"
     , Subcommand "repl" "Run interpreter" $
       runCmd Repl
-      <$> optional (strArg "PKG")
+      <$> optionalArg "PKG"
     , Subcommand "clean" "clean dist/" $
       runCmd Clean
-      <$> optional (strArg "PKG")
+      <$> optionalArg "PKG"
     , Subcommand "help" "Cabal help output" $
       runCmd Help
-      <$> optional (strArg "COMMAND")
+      <$> optionalArg "COMMAND"
     ]
+  where
+    optionalArg :: String -> Parser (Maybe String,[String])
+    optionalArg lbl =
+      (,) <$> optional (strArg lbl) <*> pure []
 
-runCmd :: CabalCmd -> Maybe String -> IO ()
-runCmd Help marg =
-  execCabalCmd Help (maybeToList marg)
-runCmd Clean mpkg = do
+    optionalRunArg :: String -> Parser (Maybe String,[String])
+    optionalRunArg lbl =
+      (,) <$>
+      case tail argv of
+        ("--":_) -> pure Nothing
+        _ -> optional (strArg lbl)
+      <*> many (strArg "ARG")
+
+runCmd :: CabalCmd -> (Maybe String,[String]) -> IO ()
+runCmd Help (marg,_) =
+  execCabalCmd Help $ maybeToList marg
+runCmd Clean (mpkg,_) = do
   findCabalProjectDir mpkg
   removeDirectoryRecursive "dist"
-runCmd Configure mpkg = do
+runCmd Configure (mpkg,_) = do
   findCabalProjectDir mpkg
   exists <- doesFileExist setupConfigFile
   when exists $ removeFile setupConfigFile
   runConfigure False
-runCmd mode mpkg = do
+runCmd mode (mpkg,rest) = do
   findCabalProjectDir mpkg
   cblconfig <- needConfigure (mode == Test)
   case cblconfig of
@@ -124,7 +141,7 @@ runCmd mode mpkg = do
             putStrLn "Falling back to cabal-install:"
             cmd_ "cabal" [show mode]
     CabalV1NeedConfig False -> cabalCmd
-    CabalV2 -> cmd_ "cabal" [show mode]
+    CabalV2 -> cmd_ "cabal" $ show mode : rest
   where
     cabalCmd =
       case mode of
@@ -140,7 +157,7 @@ runCmd mode mpkg = do
             [] -> error' "no executables"
             [exe] ->
               let ex = unUnqualComponentName $ exeName exe
-              in cmd_ (joinPath ["dist", "build", ex, ex]) []
+              in cmd_ (joinPath ["dist", "build", ex, ex]) rest
             exes -> error' $ "please specify executable component: " ++
                     unwords (map (unUnqualComponentName . exeName) exes)
         Test -> do
