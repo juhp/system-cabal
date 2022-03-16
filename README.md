@@ -3,6 +3,8 @@
 A small Haskell build tool over the Cabal library.
 
 ```
+$ scbl --version
+0.1.0
 $ scbl --help
 system-cabal package build tool
 
@@ -15,8 +17,15 @@ Available options:
 
 Available commands:
   config                   Configure a package
+  configure                alias for config
   build                    Build a package
+  run                      Run a package
   install                  Install a package
+  test                     Test a package
+  haddock                  Build documentation
+  repl                     Run interpreter
+  clean                    clean dist/
+  help                     Cabal help output
 ```
 
 ## Usage
