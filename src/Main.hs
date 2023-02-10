@@ -58,10 +58,10 @@ processArgs argv =
       -- FIXME okay to install libraries?
       -- FIXME --bindir
       runCmd Configure
-      <$> optionalArg "PKG"
+      <$> optionalRunArg "[PKG] [-- ARG...]"
     , Subcommand "configure" "alias for config" $
       runCmd Configure
-      <$> optionalArg "PKG"
+      <$> optionalRunArg "[PKG] [-- ARG...]"
     , Subcommand "build" "Build a package" $
       runCmd Build
       <$> optionalArg "PKG"
@@ -106,11 +106,11 @@ runCmd Help (marg,_) =
 runCmd Clean (mpkg,_) = do
   findCabalProjectDir mpkg
   removeDirectoryRecursive "dist"
-runCmd Configure (mpkg,_) = do
+runCmd Configure (mpkg,args) = do
   findCabalProjectDir mpkg
   exists <- doesFileExist setupConfigFile
   when exists $ removeFile setupConfigFile
-  runConfigure False
+  runConfigure False args
 runCmd mode (mpkg,rest) = do
   findCabalProjectDir mpkg
   cblconfig <- needConfigure (mode == Test)
@@ -123,7 +123,7 @@ runCmd mode (mpkg,rest) = do
         missing <- filterM (fmap not . pkgInstalled pkgmgr) builddeps
         if null missing
           then do
-          runConfigure (mode == Test)
+          runConfigure (mode == Test) []
           cabalCmd
           else do
           putStrLn "Running repoquery"
@@ -133,7 +133,7 @@ runCmd mode (mpkg,rest) = do
           let notpackaged = map (ghcDevelPkg pkgmgr) missing \\ available
           if null notpackaged
             then do
-            runConfigure (mode == Test)
+            runConfigure (mode == Test) []
             cabalCmd
             else do
             -- FIXME record missing packages
@@ -172,11 +172,11 @@ runCmd mode (mpkg,rest) = do
       -- let localComponent = unComponentId . localComponentId
       execCabalCmd Repl [] -- [localComponent lbi]
 
-runConfigure :: Bool -> IO ()
-runConfigure test = do
+runConfigure :: Bool -> [String] -> IO ()
+runConfigure test args = do
   home <- getHomeDirectory
   let options =
-        ["--user","--prefix=" ++ home </> ".local"] ++ ["--enable-tests" | test]
+        ["--user","--prefix=" ++ home </> ".local"] ++ ["--enable-tests" | test] ++ args
   execCabalCmd Configure options
 
 setupConfigFile :: FilePath
