@@ -108,7 +108,7 @@ processArgs argv =
 
 runCmd :: CabalCmd -> Args -> IO ()
 runCmd Help (mghc,marg,_) =
-  execCabalCmd Help mghc $ maybeToList marg
+  execCabalV1Cmd Help mghc $ maybeToList marg
 runCmd Clean (_,mpkg,_) = do
   findCabalProjectDir mpkg
   -- FIXME determine which to remove
@@ -135,7 +135,7 @@ runCmd mode (mghc,mpkg,rest) = do
         if null missing
           then do
           runConfigure (mode == Test) mghc rest
-          cabalCmd
+          cabalV1Cmd
           else do
           putStrLn "Running repoquery"
           available <- catMaybes <$> mapM (pkgQueryGhcDevel pkgmgr) missing
@@ -145,24 +145,24 @@ runCmd mode (mghc,mpkg,rest) = do
           if null notpackaged
             then do
             runConfigure (mode == Test) mghc rest
-            cabalCmd
+            cabalV1Cmd
             else do
             -- FIXME record missing packages
             putStrLn $ "Missing system libs:\n" ++ unlines notpackaged
             putStrLn "Falling back to cabal-install:"
             cmd_ "cabal" [show mode]
-    CabalV1NeedConfig False -> cabalCmd
+    CabalV1NeedConfig False -> cabalV1Cmd
     CabalV2 -> cmd_ "cabal" $ show mode : maybeWithCompiler mghc rest
   where
-    cabalCmd =
+    cabalV1Cmd =
       case mode of
         Configure -> return ()
         Install -> do
           -- FIXME make smarter?
-          execCabalCmd Build mghc []
-          execCabalCmd Install mghc []
+          execCabalV1Cmd Build mghc []
+          execCabalV1Cmd Install mghc []
         Run -> do
-          execCabalCmd Build mghc []
+          execCabalV1Cmd Build mghc []
           pkgdesc <- SC.findCabalFile >>= SC.readFinalPackageDescription []
           case SC.executables pkgdesc of
             [] -> error' "no executables"
@@ -172,23 +172,23 @@ runCmd mode (mghc,mpkg,rest) = do
             exes -> error' $ "please specify executable component: " ++
                     unwords (map (unUnqualComponentName . exeName) exes)
         Test -> do
-          execCabalCmd Build mghc []
-          execCabalCmd Test mghc []
+          execCabalV1Cmd Build mghc []
+          execCabalV1Cmd Test mghc []
         Repl -> runRepl
-        _ -> execCabalCmd mode mghc []
+        _ -> execCabalV1Cmd mode mghc []
 
     runRepl = do
       -- -- lib:name or name, etc
       -- lbi <- getLocalBuildInfo'
       -- let localComponent = unComponentId . localComponentId
-      execCabalCmd Repl mghc [] -- [localComponent lbi]
+      execCabalV1Cmd Repl mghc [] -- [localComponent lbi]
 
 runConfigure :: Bool -> Maybe String -> [String] -> IO ()
 runConfigure test mghc args = do
   home <- getHomeDirectory
   let options =
         ["--user","--prefix=" ++ home </> ".local"] ++ ["--enable-tests" | test] ++ args
-  execCabalCmd Configure mghc options
+  execCabalV1Cmd Configure mghc options
 
 setupConfigFile :: FilePath
 setupConfigFile = "dist/setup-config"
@@ -238,8 +238,8 @@ maybeWithCompiler :: Maybe String -> [String] -> [String]
 maybeWithCompiler Nothing = id
 maybeWithCompiler (Just ghc) = (("--with-compiler=" ++ ghc) :)
 
-execCabalCmd :: CabalCmd -> Maybe String -> [String] -> IO ()
-execCabalCmd mode mghc opts =
+execCabalV1Cmd :: CabalCmd -> Maybe String -> [String] -> IO ()
+execCabalV1Cmd mode mghc opts =
   defaultMainArgs $ show mode : maybeWithCompiler mghc opts
 
 data DistroPkgMgr = Apt | Dnf | Zypper
