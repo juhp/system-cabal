@@ -23,7 +23,11 @@ import Distribution.Types.PackageName
 import Distribution.Types.UnqualComponentName (unUnqualComponentName)
 import Distribution.Simple.PackageIndex (lookupPackageName)
 import qualified SimpleCabal as SC
-import SimpleCmd
+import SimpleCmd (cmd, cmd_, cmdBool, error', sudo, sudo_,
+#if MIN_VERSION_simple_cmd(0,2,4)
+                  fileWithExtension
+#endif
+                 )
 import SimpleCmdArgs
 import System.Directory
 import System.Environment
@@ -246,8 +250,8 @@ data DistroPkgMgr = Apt | Dnf | Zypper
 
 systemPackageManager :: IO DistroPkgMgr
 systemPackageManager = do
-  -- FIXME use simple-os-release
-  os <- removePrefix "ID=" <$> cmd "grep" ["^ID=", "/etc/os-release"]
+  -- FIXME use simple-os-release, once released
+  os <- dropPrefix "ID=" <$> cmd "grep" ["^ID=", "/etc/os-release"]
   return $
     case os of
       "fedora" -> Dnf
