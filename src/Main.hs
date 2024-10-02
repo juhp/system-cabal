@@ -246,7 +246,8 @@ data DistroPkgMgr = Apt | Dnf | Zypper
 
 systemPackageManager :: IO DistroPkgMgr
 systemPackageManager = do
-  os <- removePrefix "ID=" <$> cmd "grep" ["^ID=", "/usr/lib/os-release"]
+  -- FIXME use simple-os-release
+  os <- removePrefix "ID=" <$> cmd "grep" ["^ID=", "/etc/os-release"]
   return $
     case os of
       "fedora" -> Dnf
