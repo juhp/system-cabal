@@ -49,6 +49,11 @@ main :: IO ()
 main = do
   getArgs >>= processArgs
 
+type Args = ( Maybe String -- ghc version
+            , Maybe String -- package
+            , [String] -- args
+            )
+
 processArgs :: [String] -> IO ()
 processArgs argv =
   simpleCmdArgs' (Just version) "system-cabal package build tool"
@@ -58,62 +63,68 @@ processArgs argv =
       -- FIXME okay to install libraries?
       -- FIXME --bindir
       runCmd Configure
-      <$> optionalRunArg "[PKG] [-- ARG...]"
+      <$> optionalArgs "[PKG] [-- ARG...]"
     , Subcommand "configure" "alias for config" $
       runCmd Configure
-      <$> optionalRunArg "[PKG] [-- ARG...]"
+      <$> optionalArgs "[PKG] [-- ARG...]"
     , Subcommand "build" "Build a package" $
       runCmd Build
-      <$> optionalArg "PKG"
+      <$> optionalArgs "[PKG] [-- ARG...]"
     , Subcommand "run" "Run a package" $
       runCmd Run
-      <$> optionalRunArg "[PKG] [-- ARG...]"
+      <$> optionalArgs "[PKG] [-- ARG...]"
     , Subcommand "install" "Install a package" $
       runCmd Install
-      <$> optionalArg "PKG"
+      <$> optionalArgs "PKG"
     , Subcommand "test" "Test a package" $
       runCmd Test
-      <$> optionalArg "PKG"
+      <$> optionalArgs "PKG"
     , Subcommand "haddock" "Build documentation" $
       runCmd Haddock
-      <$> optionalArg "PKG"
+      <$> optionalArgs "PKG"
     , Subcommand "repl" "Run interpreter" $
       runCmd Repl
-      <$> optionalArg "PKG"
+      <$> optionalArgs "PKG"
     , Subcommand "clean" "clean dist/" $
       runCmd Clean
-      <$> optionalArg "PKG"
+      <$> optionalArgs "PKG"
     , Subcommand "help" "Cabal help output" $
       runCmd Help
-      <$> optionalArg "COMMAND"
+      <$> optionalHelpArg "COMMAND"
     ]
   where
-    optionalArg :: String -> Parser (Maybe String,[String])
-    optionalArg lbl =
-      (,) <$> optional (strArg lbl) <*> pure []
+    optionalHelpArg :: String -> Parser Args
+    optionalHelpArg lbl =
+      (,,) <$> pure Nothing <*> optional (strArg lbl) <*> pure []
 
-    optionalRunArg :: String -> Parser (Maybe String,[String])
-    optionalRunArg lbl =
-      (,) <$>
-      case tail argv of
-        ("--":_) -> pure Nothing
-        _ -> optional (strArg lbl)
+    optionalArgs :: String -> Parser Args
+    optionalArgs lbl =
+      (,,)
+      <$> optional (strOptionWith 'w' "--with-compiler" "PATH" "specify compiler")
+      <*> case tail argv of
+            ("--":_) -> pure Nothing
+            _ -> optional (strArg lbl)
       <*> many (strArg "ARG")
 
-runCmd :: CabalCmd -> (Maybe String,[String]) -> IO ()
-runCmd Help (marg,_) =
-  execCabalCmd Help $ maybeToList marg
-runCmd Clean (mpkg,_) = do
+runCmd :: CabalCmd -> Args -> IO ()
+runCmd Help (mghc,marg,_) =
+  execCabalCmd Help mghc $ maybeToList marg
+runCmd Clean (_,mpkg,_) = do
   findCabalProjectDir mpkg
-  removeDirectoryRecursive "dist"
-runCmd Configure (mpkg,args) = do
+  -- FIXME determine which to remove
+  whenM (doesFileExist "dist") $
+    removeDirectoryRecursive "dist"
+  whenM (doesFileExist "dist-newstyle") $
+    removeDirectoryRecursive "dist-newstyle"
+runCmd Configure (mghc,mpkg,args) = do
   findCabalProjectDir mpkg
   exists <- doesFileExist setupConfigFile
   when exists $ removeFile setupConfigFile
-  runConfigure False args
-runCmd mode (mpkg,rest) = do
+  runConfigure False mghc args
+runCmd mode (mghc,mpkg,rest) = do
   findCabalProjectDir mpkg
-  cblconfig <- needConfigure (mode == Test)
+  cblconfig <- needConfigure (mode == Test) mghc
+  print cblconfig
   case cblconfig of
     CabalV1NeedConfig True -> do
         pkgdesc <- SC.findCabalFile >>= SC.readFinalPackageDescription []
@@ -123,7 +134,7 @@ runCmd mode (mpkg,rest) = do
         missing <- filterM (fmap not . pkgInstalled pkgmgr) builddeps
         if null missing
           then do
-          runConfigure (mode == Test) []
+          runConfigure (mode == Test) mghc rest
           cabalCmd
           else do
           putStrLn "Running repoquery"
@@ -133,7 +144,7 @@ runCmd mode (mpkg,rest) = do
           let notpackaged = map (ghcDevelPkg pkgmgr) missing \\ available
           if null notpackaged
             then do
-            runConfigure (mode == Test) []
+            runConfigure (mode == Test) mghc rest
             cabalCmd
             else do
             -- FIXME record missing packages
@@ -141,17 +152,17 @@ runCmd mode (mpkg,rest) = do
             putStrLn "Falling back to cabal-install:"
             cmd_ "cabal" [show mode]
     CabalV1NeedConfig False -> cabalCmd
-    CabalV2 -> cmd_ "cabal" $ show mode : rest
+    CabalV2 -> cmd_ "cabal" $ show mode : maybeWithCompiler mghc rest
   where
     cabalCmd =
       case mode of
         Configure -> return ()
         Install -> do
           -- FIXME make smarter?
-          execCabalCmd Build []
-          execCabalCmd Install []
+          execCabalCmd Build mghc []
+          execCabalCmd Install mghc []
         Run -> do
-          execCabalCmd Build []
+          execCabalCmd Build mghc []
           pkgdesc <- SC.findCabalFile >>= SC.readFinalPackageDescription []
           case SC.executables pkgdesc of
             [] -> error' "no executables"
@@ -161,31 +172,34 @@ runCmd mode (mpkg,rest) = do
             exes -> error' $ "please specify executable component: " ++
                     unwords (map (unUnqualComponentName . exeName) exes)
         Test -> do
-          execCabalCmd Build []
-          execCabalCmd Test []
+          execCabalCmd Build mghc []
+          execCabalCmd Test mghc []
         Repl -> runRepl
-        _ -> execCabalCmd mode []
+        _ -> execCabalCmd mode mghc []
 
     runRepl = do
       -- -- lib:name or name, etc
       -- lbi <- getLocalBuildInfo'
       -- let localComponent = unComponentId . localComponentId
-      execCabalCmd Repl [] -- [localComponent lbi]
+      execCabalCmd Repl mghc [] -- [localComponent lbi]
 
-runConfigure :: Bool -> [String] -> IO ()
-runConfigure test args = do
+runConfigure :: Bool -> Maybe String -> [String] -> IO ()
+runConfigure test mghc args = do
   home <- getHomeDirectory
   let options =
         ["--user","--prefix=" ++ home </> ".local"] ++ ["--enable-tests" | test] ++ args
-  execCabalCmd Configure options
+  execCabalCmd Configure mghc options
 
 setupConfigFile :: FilePath
 setupConfigFile = "dist/setup-config"
 
 data CabalConfig = CabalV1NeedConfig Bool | CabalV2
+  deriving Show
 
-needConfigure :: Bool -> IO CabalConfig
-needConfigure test = do
+needConfigure :: Bool -> Maybe String -> IO CabalConfig
+needConfigure _ (Just _) =
+  return CabalV2
+needConfigure test Nothing = do
   elbi <- tryGetConfigStateFile setupConfigFile
   case elbi of
     Right lbi ->
@@ -220,9 +234,13 @@ needConfigure test = do
         print err
         return $ CabalV1NeedConfig True
 
-execCabalCmd :: CabalCmd -> [String] -> IO ()
-execCabalCmd mode opts =
-  defaultMainArgs (show mode:opts)
+maybeWithCompiler :: Maybe String -> [String] -> [String]
+maybeWithCompiler Nothing = id
+maybeWithCompiler (Just ghc) = (("--with-compiler=" ++ ghc) :)
+
+execCabalCmd :: CabalCmd -> Maybe String -> [String] -> IO ()
+execCabalCmd mode mghc opts =
+  defaultMainArgs $ show mode : maybeWithCompiler mghc opts
 
 data DistroPkgMgr = Apt | Dnf | Zypper
 
