@@ -183,7 +183,6 @@ runCmd mode (mghc,mpkg,rest) = do
   where
     cabalV1Cmd =
       case mode of
-        Configure -> return ()
         Install -> do
           -- FIXME make smarter?
           execCabalV1Cmd Build mghc []
