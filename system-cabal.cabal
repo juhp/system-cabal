@@ -33,6 +33,7 @@ executable scbl
                        directory,
                        extra,
                        filepath,
+                       safe,
                        simple-cabal >= 0.1.2,
                        simple-cmd >= 0.2.0,
                        simple-cmd-args

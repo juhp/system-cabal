@@ -22,6 +22,7 @@ import Distribution.Types.PackageId
 import Distribution.Types.PackageName
 import Distribution.Types.UnqualComponentName (unUnqualComponentName)
 import Distribution.Simple.PackageIndex (lookupPackageName)
+import Safe (headMay)
 import qualified SimpleCabal as SC
 import SimpleCmd (cmd, cmd_, cmdBool, error', sudo, sudo_,
 #if MIN_VERSION_simple_cmd(0,2,4)
@@ -283,8 +284,8 @@ systemPackageManager = do
       "fedora" -> Dnf
       "debian" -> Apt
       "ubuntu" -> Apt
-      _ -> case head (splitOn "-" os) of
-        "opensuse" -> Zypper
+      _ -> case headMay (splitOn "-" os) of
+        Just "opensuse" -> Zypper
         _ -> error' $ "Unsupported OS: " ++ os
 
 -- getLocalBuildInfo :: IO (Either ConfigStateFileError LocalBuildInfo)
