@@ -1,4 +1,7 @@
 {-# LANGUAGE CPP #-}
+#if MIN_VERSION_Cabal(3,16,0)
+{-# LANGUAGE PatternSynonyms #-}
+#endif
 
 -- SPDX-License-Identifier: BSD-3-Clause
 
@@ -14,7 +17,14 @@ import Distribution.Text (simpleParse)
 #endif
 import Distribution.Simple (defaultMainArgs, {-unComponentId-})
 import Distribution.Simple.Configure (tryGetConfigStateFile)
-import Distribution.Simple.Setup (configTests, Flag(..))
+#if MIN_VERSION_Cabal(3,16,0)
+import Distribution.Simple.Flag
+#endif
+import Distribution.Simple.Setup (configTests,
+#if !MIN_VERSION_Cabal(3,16,0)
+                                  Flag(..)
+#endif
+                                 )
 import Distribution.Types.Executable (exeName)
 import Distribution.Types.LocalBuildInfo ({-LocalBuildInfo,-} configFlags,
                                           installedPkgs, {-localComponentId-})
