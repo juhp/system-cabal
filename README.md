@@ -47,6 +47,15 @@ Further `scbl install` also runs `Setup install`.
 
 Otherwise a v2 build will be done.
 
+`scbl build` and `scbl install` pass arguments after `--` to Cabal v2.
+The package directory before `--` is optional. When omitted, `scbl`
+looks for the project in the current directory and its parents.
+
+```sh
+scbl build -w ghc-9.12 -- --constraint 'Cabal > 3.18'
+scbl install path/to/package -- --installdir="$HOME/.local/bin"
+```
+
 ## Limitations
 Currently projects can only be built from their source tree directly,
 eventually downloading source from Hackage may be supported.

@@ -60,6 +60,7 @@ type Args = ( Maybe String -- ghc version
 
 processArgs :: [String] -> IO ()
 processArgs argv =
+  withArgs wrapperArgs $
   simpleCmdArgs' (Just version) "system-cabal package build tool"
     "Use system Haskell library to build Haskell packages" $
     subcommands
@@ -71,15 +72,13 @@ processArgs argv =
     , Subcommand "configure" "alias for config" $
       runCmd Configure
       <$> optionalArgs "[PKG] [-- ARG...]"
-    , Subcommand "build" "Build a package" $
-      runCmd Build
-      <$> optionalArgs "[PKG] [-- ARG...]"
+    , Subcommand "build" "Build a package (pass Cabal options after --)" $
+      cabalArgs Build
     , Subcommand "run" "Run a package" $
       runCmd Run
       <$> optionalArgs "[PKG] [-- ARG...]"
-    , Subcommand "install" "Install a package" $
-      runCmd Install
-      <$> optionalArgs "PKG"
+    , Subcommand "install" "Install a package (pass Cabal options after --)" $
+      cabalArgs Install
     , Subcommand "test" "Test a package" $
       runCmd Test
       <$> optionalArgs "PKG"
@@ -97,18 +96,41 @@ processArgs argv =
       <$> optionalHelpArg "COMMAND"
     ]
   where
+    (wrapperArgs, forwardedArgs) =
+      case argv of
+        (command:args) | command `elem` ["build", "install"] ->
+          let (options, forwarded) = break (== "--") args
+          in (command:options, drop 1 forwarded)
+        _ -> (argv, [])
+
+    cabalArgs :: CabalCmd -> Parser (IO ())
+    cabalArgs mode =
+      runWithCabalArgs mode forwardedArgs <$> parseArgs (optional (strArg "PKG"))
+
     optionalHelpArg :: String -> Parser Args
     optionalHelpArg lbl =
       (,,) <$> pure Nothing <*> optional (strArg lbl) <*> pure []
 
     optionalArgs :: String -> Parser Args
     optionalArgs lbl =
+      parseArgs $
+      case drop 1 argv of
+        ("--":_) -> pure Nothing
+        _ -> optional (strArg lbl)
+
+    parseArgs :: Parser (Maybe String) -> Parser Args
+    parseArgs pkg =
       (,,)
-      <$> optional (strOptionWith 'w' "--with-compiler" "PATH" "specify compiler")
-      <*> case tail argv of
-            ("--":_) -> pure Nothing
-            _ -> optional (strArg lbl)
+      <$> optional (strOptionWith 'w' "with-compiler" "PATH" "specify compiler")
+      <*> pkg
       <*> many (strArg "ARG")
+
+runWithCabalArgs :: CabalCmd -> [String] -> Args -> IO ()
+runWithCabalArgs mode [] args = runCmd mode args
+runWithCabalArgs mode forwarded (mghc, mpkg, rest) = do
+  findCabalProjectDir mpkg
+  print CabalV2
+  runCabalV2Cmd mode mghc (rest ++ forwarded)
 
 runCmd :: CabalCmd -> Args -> IO ()
 runCmd Help (mghc,marg,_) =
@@ -156,7 +178,7 @@ runCmd mode (mghc,mpkg,rest) = do
             putStrLn "Falling back to cabal-install:"
             cmd_ "cabal" [show mode]
     CabalV1NeedConfig False -> cabalV1Cmd
-    CabalV2 -> cmd_ "cabal" $ show mode : maybeWithCompiler mghc rest
+    CabalV2 -> runCabalV2Cmd mode mghc rest
   where
     cabalV1Cmd =
       case mode of
@@ -241,6 +263,10 @@ needConfigure test Nothing = do
 maybeWithCompiler :: Maybe String -> [String] -> [String]
 maybeWithCompiler Nothing = id
 maybeWithCompiler (Just ghc) = (("--with-compiler=" ++ ghc) :)
+
+runCabalV2Cmd :: CabalCmd -> Maybe String -> [String] -> IO ()
+runCabalV2Cmd mode mghc opts =
+  cmd_ "cabal" $ show mode : maybeWithCompiler mghc opts
 
 execCabalV1Cmd :: CabalCmd -> Maybe String -> [String] -> IO ()
 execCabalV1Cmd mode mghc opts =
