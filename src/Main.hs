@@ -23,6 +23,9 @@ import Distribution.Types.PackageName
 import Distribution.Types.UnqualComponentName (unUnqualComponentName)
 import Distribution.Simple.PackageIndex (lookupPackageName)
 import Safe (headMay)
+#if MIN_VERSION_Cabal(3,14,0)
+import Distribution.Utils.Path (makeSymbolicPath)
+#endif
 import qualified SimpleCabal as SC
 import SimpleCmd (cmd, cmd_, cmdBool, error', sudo, sudo_,
 #if MIN_VERSION_simple_cmd(0,2,4)
@@ -226,7 +229,12 @@ needConfigure :: Bool -> Maybe String -> IO CabalConfig
 needConfigure _ (Just _) =
   return CabalV2
 needConfigure test Nothing = do
-  elbi <- tryGetConfigStateFile setupConfigFile
+  elbi <- tryGetConfigStateFile
+#if MIN_VERSION_Cabal(3,14,0)
+          Nothing (makeSymbolicPath setupConfigFile)
+#else
+          setupConfigFile
+#endif
   case elbi of
     Right lbi ->
       CabalV1NeedConfig <$>
